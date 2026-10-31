@@ -1,0 +1,12 @@
+{
+  "name": "paper-skyline",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Paper plane glider through a procedural city skyline — browser game",
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/*.test.js",
+    "start": "python -m http.server 8137"
+  },
+  "license": "MIT"
+}

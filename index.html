@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+  <title>PAPER SKYLINE — 3D 종이비행기 빌딩 숲 활공</title>
+  <meta name="description" content="최고층 빌딩 옥상에서 날린 종이비행기 한 장. 3D 빌딩 숲을 누비며 지상까지, 더 멀리 더 멋지게 날아 점수를 겨루는 브라우저 게임." />
+  <meta name="theme-color" content="#1d2550" />
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="PAPER SKYLINE — 3D 종이비행기 빌딩 숲 활공" />
+  <meta property="og:description" content="옥상에서 날린 종이비행기로 빌딩 숲을 가로질러라. 루프·옥상 스치기·골목 질주로 점수를 올리고 친구에게 도전장을!" />
+  <meta property="og:image" content="https://jeiel85.github.io/paper-skyline/docs/og.png" />
+  <meta property="og:url" content="https://jeiel85.github.io/paper-skyline/" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2353407a'/%3E%3Cpath d='M56 14 8 30l18 6z' fill='%23fff'/%3E%3Cpath d='M56 14 26 36l4 14z' fill='%23d9dcef'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" />
+  <link rel="stylesheet" href="css/style.css" />
+  <script type="importmap">
+    { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
+  </script>
+</head>
+<body>
+  <canvas id="game" aria-label="게임 화면"></canvas>
+  <div id="popups" aria-hidden="true"></div>
+  <div id="stick" class="stick hidden" aria-hidden="true"><div id="stickKnob" class="stick-knob"></div></div>
+
+  <!-- HUD -->
+  <div id="hud" class="hidden">
+    <div class="hud-left">
+      <div class="score" id="hudScore">0</div>
+      <div class="combo" id="hudCombo"></div>
+    </div>
+    <div class="hud-right">
+      <div class="stat"><span>거리</span><b id="hudDist">0m</b></div>
+      <div class="stat"><span>고도</span><b id="hudAlt">0m</b></div>
+      <div class="stat"><span>속도</span><b id="hudSpeed">0</b></div>
+      <div class="paper" id="hudPaper" title="종이 내구도"></div>
+    </div>
+    <div class="hud-buttons">
+      <button class="icon-btn" id="btnMute" aria-label="소리 끄기/켜기">🔊</button>
+      <button class="icon-btn" id="btnPause" aria-label="일시정지">⏸</button>
+    </div>
+    <div class="hint" id="hint"></div>
+    <div class="meter hidden" id="meter"><div class="meter-fill" id="meterFill"></div><span>파워</span></div>
+  </div>
+
+  <!-- 타이틀 -->
+  <section id="title" class="screen">
+    <div class="card title-card">
+      <div class="logo">
+        <svg viewBox="0 0 64 64" aria-hidden="true"><path d="M60 10 4 30l20 7z" fill="#fff"/><path d="M60 10 24 37l5 17z" fill="#d9dcef"/><path d="M24 37l5 17 7-12z" fill="#b8bde0"/></svg>
+        <h1>PAPER<br />SKYLINE</h1>
+      </div>
+      <p class="tagline">최고층 옥상에서 날린 종이비행기 한 장.<br />3D 빌딩 숲을 누비며 지상까지 — 더 멀리, 더 멋지게.</p>
+      <div class="challenge hidden" id="challenge"></div>
+      <button class="btn primary big" id="btnStart">비행 시작</button>
+      <div class="row">
+        <button class="btn ghost" id="btnHow">조작법</button>
+        <button class="btn ghost" id="btnNewCity">새 도시</button>
+      </div>
+      <div class="meta">
+        <span>도시 <b id="cityCode">-----</b> · <span id="cityPal"></span></span>
+        <span>최고 기록 <b id="bestScore">0</b></span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 조작법 -->
+  <section id="how" class="screen hidden">
+    <div class="card">
+      <h2>조작법</h2>
+      <ol class="how-list">
+        <li><b>던지기</b> — 화면을 탭해 <em>각도</em>를, 한 번 더 탭해 <em>파워</em>를 정합니다.</li>
+        <li><b>키보드</b> — <kbd>↑</kbd>/<kbd>W</kbd> 기수 올리기 · <kbd>↓</kbd>/<kbd>S</kbd> 다이브 · <kbd>←</kbd><kbd>→</kbd>/<kbd>A</kbd><kbd>D</kbd> 선회.</li>
+        <li><b>터치·마우스</b> — 화면을 누른 채 드래그하면 가상 스틱. 위로 밀면 기수↑, 아래로 당기면 다이브, 좌우로 선회.</li>
+        <li><b>종이 내구도</b> — 벽·첨탑에 부딪히면 구겨집니다. 3번이면 추락.</li>
+      </ol>
+      <h3>점수 = 비행 거리(m) + 액션 × 콤보</h3>
+      <ul class="actions-list">
+        <li><span>아슬아슬!</span>벽·첨탑을 2m 이내로 스침</li>
+        <li><span>옥상 스치기</span>옥상 바로 위를 낮게 활공</li>
+        <li><span>골목 질주</span>빌딩 사이 골목을 낮게 통과</li>
+        <li><span>터치 앤 고</span>옥상에 닿았다가 다시 이륙</li>
+        <li><span>루프!</span>다이브 → 풀업으로 한 바퀴</li>
+        <li><span>360° 선회</span>기울여서 한 바퀴 빙 돌기</li>
+        <li><span>상승기류</span>환풍구 기류 타기</li>
+        <li><span>종이별</span>떠 있는 별 수집</li>
+        <li><span>완벽한 착지</span>지상에 사뿐히 수평 착지</li>
+      </ul>
+      <p class="small">액션을 4초 안에 이어 가면 콤보 배율이 최대 ×5까지 올라갑니다.</p>
+      <button class="btn primary" id="btnHowClose">알겠어요</button>
+    </div>
+  </section>
+
+  <!-- 일시정지 -->
+  <section id="pause" class="screen hidden">
+    <div class="card">
+      <h2>일시정지</h2>
+      <button class="btn primary" id="btnResume">계속하기</button>
+      <button class="btn ghost" id="btnRestart">처음부터</button>
+      <button class="btn ghost" id="btnHome">타이틀로</button>
+    </div>
+  </section>
+
+  <!-- 결과 -->
+  <section id="result" class="screen hidden">
+    <div class="card result-card">
+      <div class="result-reason" id="resReason"></div>
+      <div class="badge hidden" id="resBest">NEW BEST!</div>
+      <div class="result-score" id="resScore">0</div>
+      <div class="result-sub" id="resSub"></div>
+      <div class="challenge-result hidden" id="resChallenge"></div>
+      <ul class="breakdown" id="resBreakdown"></ul>
+      <button class="btn primary big" id="btnShare">기록 공유하기</button>
+      <div class="row">
+        <button class="btn ghost" id="btnRetry">같은 도시 다시</button>
+        <button class="btn ghost" id="btnNext">새 도시</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- 공유 -->
+  <section id="share" class="screen hidden">
+    <div class="card share-card">
+      <h2>기록 공유</h2>
+      <img id="sharePreview" alt="점수 카드 미리보기" />
+      <p class="small" id="shareTextPreview"></p>
+      <div class="share-grid">
+        <button class="btn primary" id="btnNative">📤 공유하기</button>
+        <button class="btn" id="btnCopy">🔗 링크 복사</button>
+        <button class="btn" id="btnSave">🖼 이미지 저장</button>
+        <a class="btn" id="btnX" target="_blank" rel="noopener">𝕏 에 올리기</a>
+      </div>
+      <button class="btn ghost" id="btnShareClose">닫기</button>
+    </div>
+  </section>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <section id="nogl" class="screen hidden">
+    <div class="card">
+      <h2>3D를 표시할 수 없어요</h2>
+      <p class="small">이 브라우저(또는 기기)에서 WebGL을 사용할 수 없습니다. 최신 Chrome·Edge·Safari·Firefox에서 하드웨어 가속을 켠 뒤 다시 열어 주세요.</p>
+    </div>
+  </section>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
