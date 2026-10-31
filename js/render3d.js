@@ -1,13 +1,14 @@
 // Three.js 3D 렌더러: 인스턴싱 빌딩(창문은 셰이더로) + 도로 + 하늘 + 추격 카메라
 import * as THREE from 'three';
-import { PALETTES, START_H, CELL, CITY_END, surfaceAt } from './world.js';
+import { PALETTES, START_H, CELL, CITY_END, STYLE, surfaceAt } from './world.js';
 import { attitude, speedOf } from './sim.js';
 import { mulberry32 } from './rng.js';
 
 const col = (hex) => new THREE.Color(hex);
 
 // ---------- 공용 셰이더 조각 ----------
-const WPOS_VERT_DECL = 'varying vec3 vWPos;\nvarying vec3 vWNrm;\nvarying float vRoof;\nvarying vec3 vBase;\n';
+// 인스턴스마다 aStyle(외벽 스타일 번호)·aSeed(0~1 난수)를 받아 창문 무늬를 다르게 그린다
+const WPOS_VERT_DECL = 'varying vec3 vWPos;\nvarying vec3 vWNrm;\nvarying float vRoof;\nvarying vec3 vBase;\nvarying float vStyle;\nvarying float vSeed;\n';
 const WPOS_VERT_BODY = `
   vec4 sbWp = vec4(transformed, 1.0);
   #ifdef USE_INSTANCING
@@ -20,7 +21,76 @@ const WPOS_VERT_BODY = `
     vBase = vec3(0.0);
     vWNrm = objectNormal;
   #endif
+  vStyle = aStyle;
+  vSeed = aSeed;
   vWPos = (modelMatrix * sbWp).xyz;
+`;
+
+// 스타일 번호는 world.js 의 STYLE 과 같다: 0 격자 · 1 가로띠 · 2 세로핀 · 3 유리 · 4 벽돌 · 5 무창 · 6 광고판
+const FACADE_FRAG = `
+  {
+    float side = 1.0 - step(0.5, abs(vWNrm.y));
+    float u = abs(vWNrm.x) > 0.5 ? vWPos.z : vWPos.x;
+    float fy = vWPos.y;
+    float bot = vBase.y;
+    float startY = bot < 0.5 ? 3.0 : bot + 1.2;
+    float inBand = side * step(startY, fy) * step(fy, vRoof - 1.4);
+    float st = floor(vStyle + 0.5);
+    float floorH = 3.5 + vSeed * 0.9;
+    vec2 cell = vec2(0.0);
+    vec2 fc = vec2(0.0);
+    float win = 0.0;
+    if (st < 0.5) {
+      cell = vec2(u / (2.8 + vSeed * 1.4), fy / floorH); fc = fract(cell);
+      win = step(0.2, fc.x) * step(fc.x, 0.78) * step(0.24, fc.y) * step(fc.y, 0.8);
+    } else if (st < 1.5) {
+      cell = vec2(u / 2.6, fy / floorH); fc = fract(cell);
+      win = step(0.05, fc.x) * step(0.3 + vSeed * 0.1, fc.y) * step(fc.y, 0.8);
+    } else if (st < 2.5) {
+      cell = vec2(u / (1.8 + vSeed * 0.8), fy / floorH); fc = fract(cell);
+      win = step(0.4, fc.x) * step(0.05, fc.y) * step(fc.y, 0.95);
+      diffuseColor.rgb *= 1.0 + 0.3 * inBand * (1.0 - step(0.4, fc.x));
+    } else if (st < 3.5) {
+      cell = vec2(u / 2.4, fy / floorH); fc = fract(cell);
+      win = step(0.05, fc.x) * step(0.06, fc.y);
+    } else if (st < 4.5) {
+      cell = vec2(u / 3.0, fy / 3.3); fc = fract(cell);
+      win = step(0.32, fc.x) * step(fc.x, 0.68) * step(0.28, fc.y) * step(fc.y, 0.74);
+    }
+    win *= inBand;
+    vec2 wid = floor(cell) + floor(vBase.xz * 0.37) + vSeed * 17.0;
+    float hsh = fract(sin(dot(wid, vec2(12.9898, 78.233))) * 43758.5453);
+    float isGlass = step(2.5, st) * step(st, 3.5);
+    float lit = step(hsh, uLit * (1.0 - isGlass * 0.55));
+    // 불 켜진 창은 따뜻한 색/차가운 색이 섞여 있다
+    vec3 winCol = uWin * mix(vec3(1.0), vec3(0.78, 0.92, 1.25), step(0.72, fract(hsh * 7.0)));
+    if (isGlass > 0.5) {
+      float refl = 0.35 + 0.45 * smoothstep(0.0, 1.0, (fy - bot) / max(1.0, vRoof - bot));
+      diffuseColor.rgb = mix(diffuseColor.rgb, uGlassSky, win * refl * 0.55);
+      totalEmissiveRadiance += winCol * win * lit * 0.55;
+    } else {
+      diffuseColor.rgb = mix(diffuseColor.rgb, uWinOff, win * (1.0 - lit) * 0.8);
+      totalEmissiveRadiance += winCol * win * lit * (0.65 + 0.35 * hsh);
+    }
+    if (st > 3.5 && st < 4.5) {
+      // 벽돌 건물: 옥상 코니스 + 층 띠
+      float cor = side * step(vRoof - 1.2, fy);
+      float band = side * step(0.94, fract(fy / 3.3)) * step(startY, fy);
+      diffuseColor.rgb *= 1.0 + 0.4 * cor + 0.15 * band;
+    }
+    if (st > 5.5) {
+      // 광고판: 앞뒤 면 패널이 스스로 빛난다
+      float face = step(0.5, abs(vWNrm.z));
+      float panel = face * step(bot + 2.0, fy) * step(fy, vRoof - 0.4);
+      float scan = 0.85 + 0.15 * step(0.5, fract(fy * 1.5));
+      totalEmissiveRadiance += diffuseColor.rgb * panel * scan * 1.1;
+      diffuseColor.rgb = mix(diffuseColor.rgb * 0.25, diffuseColor.rgb, panel);
+    }
+    float roof = step(0.5, vWNrm.y);
+    diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * 1.3 + 0.04, roof);
+    float edge = side * smoothstep(vRoof - 0.7, vRoof - 0.15, fy) * step(st, 4.5);
+    totalEmissiveRadiance += uEdge * edge * 0.3;
+  }
 `;
 
 function buildingMaterial(pal) {
@@ -29,34 +99,17 @@ function buildingMaterial(pal) {
     uWin: { value: col(pal.win) },
     uWinOff: { value: col(pal.winOff) },
     uEdge: { value: col(pal.edge) },
+    uGlassSky: { value: col(pal.glassSky) },
     uLit: { value: pal.litRate },
   };
   mat.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms);
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\n' + WPOS_VERT_DECL)
+      .replace('#include <common>', '#include <common>\nattribute float aStyle;\nattribute float aSeed;\n' + WPOS_VERT_DECL)
       .replace('#include <worldpos_vertex>', '#include <worldpos_vertex>\n' + WPOS_VERT_BODY);
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\n' + WPOS_VERT_DECL + 'uniform vec3 uWin;\nuniform vec3 uWinOff;\nuniform vec3 uEdge;\nuniform float uLit;\n')
-      .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
-      {
-        float side = 1.0 - step(0.5, abs(vWNrm.y));
-        float u = abs(vWNrm.x) > 0.5 ? vWPos.z : vWPos.x;
-        float fy = vWPos.y;
-        vec2 cell = vec2(u / 3.4, fy / 3.8);
-        vec2 fc = fract(cell);
-        float win = step(0.2, fc.x) * step(fc.x, 0.78) * step(0.24, fc.y) * step(fc.y, 0.8);
-        win *= side * step(3.0, fy) * step(fy, vRoof - 1.6);
-        vec2 wid = floor(cell) + floor(vBase.xz * 0.37);
-        float hsh = fract(sin(dot(wid, vec2(12.9898, 78.233))) * 43758.5453);
-        float lit = step(hsh, uLit);
-        diffuseColor.rgb = mix(diffuseColor.rgb, uWinOff, win * (1.0 - lit) * 0.8);
-        totalEmissiveRadiance += uWin * win * lit * (0.65 + 0.35 * hsh);
-        float roof = step(0.5, vWNrm.y);
-        diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * 1.35 + 0.04, roof);
-        float edge = side * smoothstep(vRoof - 0.7, vRoof - 0.15, fy);
-        totalEmissiveRadiance += uEdge * edge * 0.3;
-      }`);
+      .replace('#include <common>', '#include <common>\n' + WPOS_VERT_DECL + 'uniform vec3 uWin;\nuniform vec3 uWinOff;\nuniform vec3 uEdge;\nuniform vec3 uGlassSky;\nuniform float uLit;\n')
+      .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n' + FACADE_FRAG);
   };
   return mat;
 }
@@ -169,6 +222,25 @@ function stripeTexture() {
   return t;
 }
 
+function helipadTexture() {
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = 256;
+  const g = cv.getContext('2d');
+  g.strokeStyle = 'rgba(255,255,255,0.9)';
+  g.lineWidth = 14;
+  g.beginPath();
+  g.arc(128, 128, 104, 0, Math.PI * 2);
+  g.stroke();
+  g.fillStyle = 'rgba(255,214,102,0.95)';
+  g.font = '900 150px system-ui, sans-serif';
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.fillText('H', 128, 136);
+  const t = new THREE.CanvasTexture(cv);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
 function paperPlaneGeometry() {
   // 앞 = +Z, 위 = +Y. 넓은 두 날개 + 아래로 접힌 용골
   const nose = [0, 0, 1.5];
@@ -224,6 +296,7 @@ export class Renderer3D {
     this.cam = { pos: new THREE.Vector3(0, START_H + 4, -12), look: new THREE.Vector3(0, START_H, 20), heading: new THREE.Vector3(0, 0, 1), shake: 0, roll: 0 };
     this.softTex = softTexture();
     this.stripeTex = stripeTexture();
+    this.helipadTex = helipadTexture();
 
     // 비행기·궤적·파티클은 도시와 무관하게 한 번만 만든다
     this.plane = new THREE.Mesh(paperPlaneGeometry(), new THREE.MeshLambertMaterial({ color: 0xffffff, side: THREE.DoubleSide, flatShading: true, emissive: 0x4a4a5c }));
@@ -311,61 +384,143 @@ export class Renderer3D {
     ground.position.set(0, 0, 3000);
     group.add(ground);
 
-    // 빌딩 (게임 빌딩 + 바깥쪽 배경 숲)
+    // 빌딩 덩어리: 게임 빌딩의 몸체·계단·포디움·펜트하우스·광고판 + 바깥쪽 배경 숲
+    const rnd = mulberry32(world.seed ^ 0x9e3779b9);
+    const blocks = []; // { x0,x1,z0,z1,bot,top, style, color, seed }
+    const tone = (hex, j = 0.05) => col(hex).offsetHSL((rnd() - 0.5) * 0.02, 0, (rnd() - 0.5) * j);
+    const spires = [];
+    const tanks = [];
+    for (const b of world.buildings) {
+      const base = col(pal.mats[b.style][b.tint]);
+      for (const p of b.parts) {
+        if (p.kind === 'spire') { spires.push(p); continue; }
+        if (p.kind === 'tank') { tanks.push(p); continue; }
+        let style = b.style;
+        let color = base.clone().offsetHSL(0, 0, (rnd() - 0.5) * 0.05);
+        if (p.kind === 'podium') { style = STYLE.RIBBON; color = tone(pal.mats[STYLE.RIBBON][b.tint]); }
+        else if (p.kind === 'cap') { style = STYLE.PLAIN; color = tone(pal.mats[STYLE.PLAIN][b.tint]); }
+        else if (p.kind === 'board') { style = STYLE.BOARD; color = col(pal.boards[b.board]); }
+        blocks.push({ ...p, style, color, seed: b.seed });
+      }
+    }
+    for (let i = 0; i < 1560; i++) {
+      let x, z, h;
+      if (i < 1400) {
+        const side = rnd() < 0.5 ? -1 : 1;
+        x = side * (330 + rnd() * 1300);
+        z = -400 + rnd() * (CITY_END + 1200);
+        h = 40 + rnd() ** 1.5 * 260 * Math.max(0.35, 1 - z / (CITY_END * 1.4));
+      } else {
+        // 시작 타워 뒤쪽
+        x = (rnd() - 0.5) * 900;
+        z = -120 - rnd() * 700;
+        h = 60 + rnd() * 200;
+      }
+      const w = 20 + rnd() * 40, d = 20 + rnd() * 40;
+      const style = Math.floor(rnd() * 5);
+      blocks.push({ x0: x - w / 2, x1: x + w / 2, z0: z - d / 2, z1: z + d / 2, bot: 0, top: h, style, color: tone(pal.mats[style][Math.floor(rnd() * 4)]), seed: rnd() });
+    }
     const box = this.track(new THREE.BoxGeometry(1, 1, 1));
     box.translate(0, 0.5, 0);
-    const bmat = this.track(buildingMaterial(pal));
-    const rnd = mulberry32(world.seed ^ 0x9e3779b9);
-    const bgList = [];
-    for (let i = 0; i < 1400; i++) {
-      const side = rnd() < 0.5 ? -1 : 1;
-      const x = side * (330 + rnd() * 1300);
-      const z = -400 + rnd() * (CITY_END + 1200);
-      const w = 20 + rnd() * 40, d = 20 + rnd() * 40;
-      const h = 40 + rnd() ** 1.5 * 260 * Math.max(0.35, 1 - z / (CITY_END * 1.4));
-      bgList.push({ x0: x - w / 2, x1: x + w / 2, z0: z - d / 2, z1: z + d / 2, h, tint: Math.floor(rnd() * 4) });
-    }
-    // 시작 타워 뒤쪽 배경
-    for (let i = 0; i < 160; i++) {
-      const x = (rnd() - 0.5) * 900, z = -120 - rnd() * 700;
-      const w = 20 + rnd() * 35, d = 20 + rnd() * 35;
-      bgList.push({ x0: x - w / 2, x1: x + w / 2, z0: z - d / 2, z1: z + d / 2, h: 60 + rnd() * 200, tint: Math.floor(rnd() * 4) });
-    }
-    const all = world.buildings.concat(bgList);
-    const inst = new THREE.InstancedMesh(box, bmat, all.length);
-    const c = new THREE.Color();
-    all.forEach((b, i) => {
-      _v.set((b.x0 + b.x1) / 2, 0, (b.z0 + b.z1) / 2);
-      _s.set(b.x1 - b.x0, b.h, b.z1 - b.z0);
-      _m.compose(_v, _q.identity(), _s);
-      inst.setMatrixAt(i, _m);
-      c.set(pal.body[b.tint || 0]);
-      if (b.start) c.multiplyScalar(0.8);
-      c.offsetHSL(0, 0, (rnd() - 0.5) * 0.06);
-      inst.setColorAt(i, c);
+    const bbox = this.track(box.clone());
+    const aStyle = new Float32Array(blocks.length);
+    const aSeed = new Float32Array(blocks.length);
+    const inst = new THREE.InstancedMesh(bbox, this.track(buildingMaterial(pal)), blocks.length);
+    blocks.forEach((p, i) => {
+      _v.set((p.x0 + p.x1) / 2, p.bot, (p.z0 + p.z1) / 2);
+      _s.set(p.x1 - p.x0, p.top - p.bot, p.z1 - p.z0);
+      inst.setMatrixAt(i, _m.compose(_v, _q.identity(), _s));
+      inst.setColorAt(i, p.color);
+      aStyle[i] = p.style;
+      aSeed[i] = p.seed;
     });
-    inst.instanceMatrix.needsUpdate = true;
-    inst.instanceColor.needsUpdate = true;
+    bbox.setAttribute('aStyle', new THREE.InstancedBufferAttribute(aStyle, 1));
+    bbox.setAttribute('aSeed', new THREE.InstancedBufferAttribute(aSeed, 1));
     group.add(inst);
 
-    // 첨탑 + 경고등
-    const spires = world.buildings.filter((b) => b.spire);
-    if (spires.length) {
-      const smat = this.track(new THREE.MeshLambertMaterial({ color: col(pal.body[0]).lerp(col(pal.edge), 0.3) }));
-      const sm = new THREE.InstancedMesh(box, smat, spires.length);
-      const lg = this.track(new THREE.SphereGeometry(0.7, 8, 6));
-      this.beaconMat = this.track(new THREE.MeshBasicMaterial({ color: 0xff4757, transparent: true }));
-      const lm = new THREE.InstancedMesh(lg, this.beaconMat, spires.length);
-      spires.forEach((b, i) => {
-        const s = b.spire;
-        _v.set((s.x0 + s.x1) / 2, b.h, (s.z0 + s.z1) / 2);
-        _s.set(s.x1 - s.x0, s.h, s.z1 - s.z0);
-        sm.setMatrixAt(i, _m.compose(_v, _q.identity(), _s));
-        _v.y = b.h + s.h + 0.4;
-        lm.setMatrixAt(i, _m.compose(_v, _q.identity(), _s.set(1, 1, 1)));
+    // 같은 지오메트리를 여러 위치에 찍는 도우미
+    const stamp = (geo, mat, list, place, color) => {
+      if (!list.length) return null;
+      const m = new THREE.InstancedMesh(geo, mat, list.length);
+      list.forEach((it, i) => {
+        _q.identity();
+        place(it, _v, _s);
+        m.setMatrixAt(i, _m.compose(_v, _q, _s));
+        if (color) m.setColorAt(i, color(it));
       });
-      group.add(sm, lm);
-    } else this.beaconMat = null;
+      group.add(m);
+      return m;
+    };
+    const metal = col(pal.mats[STYLE.PLAIN][0]).offsetHSL(0, -0.05, 0.12);
+
+    // 첨탑 + 경고등
+    this.beaconMat = null;
+    if (spires.length) {
+      stamp(box, this.track(new THREE.MeshLambertMaterial({ color: metal })), spires, (p, v, sc) => {
+        v.set((p.x0 + p.x1) / 2, p.bot, (p.z0 + p.z1) / 2);
+        sc.set(p.x1 - p.x0, p.top - p.bot, p.z1 - p.z0);
+      });
+      this.beaconMat = this.track(new THREE.MeshBasicMaterial({ color: 0xff4757, transparent: true }));
+      stamp(this.track(new THREE.SphereGeometry(0.7, 8, 6)), this.beaconMat, spires, (p, v, sc) => {
+        v.set((p.x0 + p.x1) / 2, p.top + 0.4, (p.z0 + p.z1) / 2);
+        sc.set(1, 1, 1);
+      });
+    }
+
+    // 물탱크: 원통 + 고깔 지붕 + 받침
+    const tankCol = col(pal.stars > 0.5 ? '#3a2f2a' : '#8a6a4a');
+    const tankGeo = this.track(new THREE.CylinderGeometry(1.7, 1.7, 1, 14));
+    tankGeo.translate(0, 0.5, 0);
+    stamp(tankGeo, this.track(new THREE.MeshLambertMaterial({ color: tankCol })), tanks, (p, v, sc) => {
+      v.set((p.x0 + p.x1) / 2, p.bot + 1.3, (p.z0 + p.z1) / 2);
+      sc.set(1, p.top - p.bot - 2.2, 1);
+    });
+    const coneGeo = this.track(new THREE.ConeGeometry(1.9, 1.1, 14));
+    coneGeo.translate(0, 0.55, 0);
+    stamp(coneGeo, this.track(new THREE.MeshLambertMaterial({ color: tankCol.clone().multiplyScalar(0.75) })), tanks, (p, v, sc) => {
+      v.set((p.x0 + p.x1) / 2, p.top - 0.9, (p.z0 + p.z1) / 2);
+      sc.set(1, 1, 1);
+    });
+    stamp(box, this.track(new THREE.MeshLambertMaterial({ color: metal.clone().multiplyScalar(0.6) })), tanks, (p, v, sc) => {
+      v.set((p.x0 + p.x1) / 2, p.bot, (p.z0 + p.z1) / 2);
+      sc.set(2.6, 1.3, 2.6);
+    });
+
+    // 옥상 장식: 실외기 · 헬리패드 · 옥상 정원 · 나무
+    const decor = { ac: [], helipad: [], garden: [], tree: [] };
+    for (const b of world.buildings) for (const d of b.decor) decor[d.type].push(d);
+    const trees = decor.tree.concat(world.trees);
+    stamp(box, this.track(new THREE.MeshLambertMaterial({ color: metal })), decor.ac, (d, v, sc) => {
+      v.set(d.x, d.y, d.z);
+      sc.set(1.8, 1.1, 1.3);
+    });
+    const flat = this.track(new THREE.PlaneGeometry(1, 1));
+    flat.rotateX(-Math.PI / 2);
+    stamp(flat, this.track(new THREE.MeshLambertMaterial({ map: this.helipadTex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 })), decor.helipad, (d, v, sc) => {
+      v.set(d.x, d.y + 0.06, d.z);
+      sc.set(d.w, 1, d.w);
+    });
+    const leaf = col(pal.leaf);
+    stamp(flat, this.track(new THREE.MeshLambertMaterial({ color: leaf.clone().multiplyScalar(0.85), polygonOffset: true, polygonOffsetFactor: -2 })), decor.garden, (d, v, sc) => {
+      v.set(d.x, d.y + 0.06, d.z);
+      sc.set(d.w, 1, d.d);
+    });
+    // 지상 공원·광장
+    stamp(flat, this.track(new THREE.MeshLambertMaterial({ color: 0xffffff, polygonOffset: true, polygonOffsetFactor: -1 })), world.parks, (pk, v, sc) => {
+      v.set((pk.x0 + pk.x1) / 2, 0.05, (pk.z0 + pk.z1) / 2);
+      sc.set(pk.x1 - pk.x0, 1, pk.z1 - pk.z0);
+    }, (pk) => col(pk.kind === 'park' ? pal.park : pal.plaza));
+    const trunkGeo = this.track(new THREE.CylinderGeometry(0.12, 0.16, 1, 5));
+    trunkGeo.translate(0, 0.5, 0);
+    stamp(trunkGeo, this.track(new THREE.MeshLambertMaterial({ color: pal.stars > 0.5 ? 0x2a1d16 : 0x6b4a32 })), trees, (t, v, sc) => {
+      v.set(t.x, t.y, t.z);
+      sc.set(t.s, t.s * 1.1, t.s);
+    });
+    const crownGeo = this.track(new THREE.IcosahedronGeometry(0.75, 0));
+    stamp(crownGeo, this.track(new THREE.MeshLambertMaterial({ color: 0xffffff, flatShading: true })), trees, (t, v, sc) => {
+      v.set(t.x, t.y + t.s * 1.45, t.z);
+      sc.set(t.s, t.s * 1.15, t.s);
+    }, () => leaf.clone().offsetHSL((rnd() - 0.5) * 0.06, 0, (rnd() - 0.5) * 0.12));
 
     // 상승기류 기둥
     if (world.vents.length) {

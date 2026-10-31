@@ -80,7 +80,7 @@ test('뱅크를 유지하면 선회하고 360° 선회 점수를 받는다', () 
 
 test('넘을 수 없는 벽에 부딪히면 구겨지고, 점수는 거리 + 액션 합이다', () => {
   const w = emptyWorld();
-  const wall = { id: 1, x0: -20, x1: 20, z0: 30, z1: 60, h: 450, start: false, spire: null, tint: 0 };
+  const wall = { id: 1, x0: -20, x1: 20, z0: 30, z1: 60, h: 450, start: false, parts: [{ x0: -20, x1: 20, z0: 30, z1: 60, bot: 0, top: 450, kind: 'body' }], decor: [] };
   w.buildings.push(wall);
   w.grid.set(1, wall); // 블록 (0, 1)
   const { run, events } = fly(w, { aim: 0, power: 1 });
@@ -97,5 +97,39 @@ test('여러 시드에서 무입력 비행이 항상 종료되고 지면을 뚫�
     assert.ok(Number.isFinite(totalScore(run)));
     assert.ok(t < 400);
     assert.ok(run.p.y >= surfaceAt(run.world, run.p.x, run.p.z) - 0.01, `seed ${s}: 지면 아래로 뚫고 들어감`);
+  }
+});
+
+test('계단식 빌딩: 아래층 옥상 높이와 위층 벽을 따로 판정한다', () => {
+  const w = emptyWorld();
+  const b = {
+    id: 1, x0: -20, x1: 20, z0: 30, z1: 70, h: 200, start: false, decor: [],
+    parts: [
+      { x0: -20, x1: 20, z0: 30, z1: 70, bot: 0, top: 120, kind: 'body' },
+      { x0: -10, x1: 10, z0: 40, z1: 60, bot: 120, top: 200, kind: 'body' },
+    ],
+  };
+  w.buildings.push(b);
+  w.grid.set(1, b);
+  assert.equal(surfaceAt(w, -15, 35), 120, '가장자리는 아래층 옥상');
+  assert.equal(surfaceAt(w, 0, 50), 200, '가운데는 위층 옥상');
+  // 아래층 옥상 위 높이(150m)로 위층 벽을 향해 날아가면 부딪힌다
+  const run = createRun(w);
+  run.p.x = 0; run.p.y = 150; run.p.z = 32; run.p.vz = 30;
+  run.phase = 'fly';
+  const hits = [];
+  for (let i = 0; i < 120 && !hits.length; i++) step(run, {}, DT, (t, d) => { if (t === 'hit') hits.push(d); });
+  assert.equal(hits.length, 1);
+  assert.ok(run.p.z < 40, '위층 벽 앞에서 튕겨 나온다');
+});
+
+test('생성된 도시의 옥상 구조물은 자기 빌딩의 옥상 위에 놓인다', () => {
+  for (let s = 0; s < 10; s++) {
+    for (const b of createWorld(s).buildings) {
+      for (const p of b.parts) {
+        assert.ok(p.top > p.bot, `seed ${s}: 높이가 없는 덩어리`);
+        assert.ok(p.x0 >= b.x0 - 1e-6 && p.x1 <= b.x1 + 1e-6 && p.z0 >= b.z0 - 1e-6 && p.z1 <= b.z1 + 1e-6, `seed ${s}: ${p.kind}가 대지 밖으로 나감`);
+      }
+    }
   }
 });

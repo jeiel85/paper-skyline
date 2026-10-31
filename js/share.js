@@ -66,7 +66,7 @@ export async function drawScoreCard(r, snapshot) {
   g.globalAlpha = 1;
 
   // 스카이라인 실루엣 2층
-  for (const [layer, color, base] of [[0, pal.far, 470], [1, pal.body[0], 540]]) {
+  for (const [layer, color, base] of [[0, pal.far, 470], [1, pal.mats[0][0], 540]]) {
     g.fillStyle = color;
     let x = -10;
     let i = 0;

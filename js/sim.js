@@ -1,6 +1,6 @@
 // 3D 비행 시뮬레이션 + 점수 판정. DOM·Three.js에 의존하지 않아 Node 테스트에서 그대로 돌린다.
 // 점질량 글라이더: 양력은 속도에 수직, 뱅크각만큼 기울어져 선회를 만든다.
-import { START_H, CITY_END, buildingAt, buildingsNear, surfaceAt } from './world.js';
+import { START_H, CITY_END, buildingAt, buildingsNear, surfaceAt, roofAt } from './world.js';
 
 export const PHYS = {
   G: 9.8,
@@ -227,24 +227,21 @@ function accumulate(acc, d, dt) {
   return acc + d;
 }
 
-function boxesOf(b) {
-  const out = [{ x0: b.x0, x1: b.x1, z0: b.z0, z1: b.z1, bot: 0, top: b.h, spire: false }];
-  if (b.spire) out.push({ x0: b.spire.x0, x1: b.spire.x1, z0: b.spire.z0, z1: b.spire.z1, bot: b.h, top: b.h + b.spire.h, spire: true });
-  return out;
-}
+// 위에서 내려앉을 수 없는 얇은 구조물(첨탑·광고판)은 위에서 닿아도 충돌로 친다
+const SHARP = new Set(['spire', 'board']);
 
 // 옆벽·첨탑 충돌. 위에서 내려온 경우는 표면 접촉으로 따로 처리한다.
 function collideWalls(run, prev, emit) {
   const p = run.p;
   const R = PHYS.R;
   for (const b of buildingsNear(run.world, p.x, p.z, 6)) {
-    for (const r of boxesOf(b)) {
+    for (const r of b.parts) {
       if (p.x < r.x0 - R || p.x > r.x1 + R || p.z < r.z0 - R || p.z > r.z1 + R || p.y < r.bot || p.y > r.top) continue;
       if (prev.y >= r.top - 0.02) {
-        if (!r.spire) continue; // 옥상 위 → 표면 처리
+        if (!SHARP.has(r.kind)) continue; // 옥상 위 → 표면 처리
         p.y = r.top + R;
         p.vy = Math.abs(p.vy) * 0.3;
-        hit(run, emit, 'spire');
+        hit(run, emit, r.kind);
         continue;
       }
       // 이전 위치가 어느 면 바깥이었는지로 부딪힌 면을 고른다
@@ -269,7 +266,7 @@ function collideWalls(run, prev, emit) {
         continue;
       }
       p.vy *= 0.6;
-      hit(run, emit, r.spire ? 'spire' : 'wall');
+      hit(run, emit, r.kind === 'body' || r.kind === 'podium' ? 'wall' : r.kind);
     }
   }
 }
@@ -277,7 +274,7 @@ function collideWalls(run, prev, emit) {
 function handleSurface(run, dt, emit) {
   const p = run.p;
   const b = buildingAt(run.world, p.x, p.z);
-  const sh = (b ? b.h : 0) + PHYS.R;
+  const sh = (b ? roofAt(b, p.x, p.z) : 0) + PHYS.R;
   if (p.y <= sh + 0.02) {
     const impact = -p.vy;
     p.y = sh;
@@ -378,7 +375,7 @@ function judgeActions(run, dt, emit) {
   if (sp > 12 && run.invuln <= 0) {
     for (const b of buildingsNear(w, p.x, p.z, 4)) {
       if (b.start || run.closeCalls.has(b.id)) continue;
-      for (const r of boxesOf(b)) {
+      for (const r of b.parts) {
         const { d, beside } = boxDistance(p, r);
         if (beside && d < 2.2) {
           run.closeCalls.add(b.id);
@@ -392,7 +389,8 @@ function judgeActions(run, dt, emit) {
 
   // 옥상 스치기
   const b = buildingAt(w, p.x, p.z);
-  const skimming = b && !b.start && !run.touching && p.y - b.h > PHYS.R + 0.05 && p.y - b.h < 4.5;
+  const roof = b ? roofAt(b, p.x, p.z) : 0;
+  const skimming = b && !b.start && !run.touching && p.y - roof > PHYS.R + 0.05 && p.y - roof < 4.5;
   if (skimming) run.skimT += dt;
   else if (run.skimT > 0) endSkim(run, emit);
 
