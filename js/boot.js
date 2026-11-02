@@ -4,6 +4,8 @@ const startBtn = document.getElementById('btnStart');
 
 import('./main.js').catch((err) => {
   console.error('게임 모듈 로드 실패', err);
+  // main.js 가 WebGL 미지원 안내를 이미 띄웠다면 그 안내가 정확하므로 덮지 않는다
+  if (!document.getElementById('nogl').classList.contains('hidden')) return;
   startBtn.disabled = true;
   startBtn.textContent = '불러오기 실패';
   document.getElementById('loadfailDetail').textContent = String(err && err.message ? err.message : err);

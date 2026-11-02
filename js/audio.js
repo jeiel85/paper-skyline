@@ -41,7 +41,9 @@ export class Sound {
 
   // 탭 전환·iOS 인터럽트 뒤 멈춘 컨텍스트를 다시 깨운다
   resume() {
-    if (this.ctx && this.ctx.state !== 'running') this.ctx.resume().catch(() => { /* 사용자 입력 전이면 다음 탭에서 재시도 */ });
+    if (!this.ctx || this.ctx.state === 'running') return;
+    const p = this.ctx.resume(); // 구형 webkitAudioContext 는 Promise 를 돌려주지 않는다
+    if (p && p.catch) p.catch(() => { /* 사용자 입력 전이면 다음 탭에서 재시도 */ });
   }
 
   setMuted(m) {

@@ -25,7 +25,8 @@ const urlSeed = codeToSeed(params.get('city'));
 const rawChallenge = urlSeed != null && /^\d{1,7}$/.test(params.get('c') || '') ? Number(params.get('c')) : null;
 const challengeOk = rawChallenge != null && params.get('v') === challengeTag(seedToCode(urlSeed), rawChallenge);
 const challengeScore = challengeOk ? rawChallenge : null;
-const challengeTampered = rawChallenge != null && !challengeOk;
+const challengeTampered = rawChallenge != null && !challengeOk && params.has('v');
+const challengeLegacy = rawChallenge != null && !params.has('v'); // 확인 태그 도입 전에 공유된 링크
 // 디버그 훅은 로컬 개발 서버나 ?debug 에서만 연다. 훅을 쓴 판의 기록은 저장하지 않는다.
 const DEBUG = params.has('debug') || ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname);
 let debugTouched = false;
@@ -41,10 +42,12 @@ let lastResult = null;
 let shareBlob = null;
 let snapshot = null;
 
+const QUALITY_TTL = 7 * 24 * 3600 * 1000; // 자동으로 낮춘 품질은 일주일 뒤 다시 판정
+
 // 저사양 기기 추정: 터치 기기이면서 메모리·코어가 적으면 처음부터 낮은 품질로 시작
 function initialQuality() {
   const saved = store.get('quality', null);
-  if (saved === 'high' || saved === 'low') return saved;
+  if (saved && saved.q === 'low' && Date.now() - saved.at < QUALITY_TTL) return 'low';
   const coarse = matchMedia('(pointer: coarse)').matches;
   const weak = (navigator.deviceMemory && navigator.deviceMemory <= 4) || (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 4);
   return coarse && weak ? 'low' : 'high';
@@ -205,13 +208,16 @@ function refreshTitle() {
   if (challengeScore != null && urlSeed === seed) {
     ch.innerHTML = `🎯 친구가 도시 <b>#${code}</b>에서 <b>${challengeScore.toLocaleString('ko-KR')}점</b>을 기록했어요.<br/>이 기록을 넘어 보세요!`;
     ch.classList.remove('hidden');
-  } else if (challengeTampered && urlSeed === seed) {
-    ch.textContent = `링크의 점수 정보가 올바르지 않아 도시 #${code}만 불러왔어요.`;
+  } else if ((challengeTampered || challengeLegacy) && urlSeed === seed) {
+    ch.textContent = challengeTampered
+      ? `링크의 점수 정보가 올바르지 않아 도시 #${code}만 불러왔어요.`
+      : `도시 #${code}를 불러왔어요. 이 링크에는 확인된 점수가 없어요.`;
     ch.classList.remove('hidden');
   } else ch.classList.add('hidden');
 }
 
 function startPlay() {
+  if (glLost) return;
   sound.unlock();
   show(null);
   $('hud').classList.remove('hidden');
@@ -384,6 +390,7 @@ canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
 const KEYMAP = { ArrowUp: 'up', KeyW: 'up', Space: 'up', ArrowDown: 'down', KeyS: 'down', ArrowLeft: 'left', KeyA: 'left', ArrowRight: 'right', KeyD: 'right' };
 window.addEventListener('keydown', (e) => {
+  if (glLost) return;
   if (e.code === 'Escape' || e.code === 'KeyP') {
     if (mode === 'play') pause();
     else if (mode === 'paused') resume();
@@ -520,7 +527,7 @@ function frame(now) {
   const dt = Math.max(0, Math.min(0.1, (now - last) / 1000));
   last = now;
   time += dt;
-  if (mode === 'play') {
+  if (mode === 'play' && !glLost) {
     acc += dt;
     readInput();
     while (acc >= DT) {
@@ -554,9 +561,10 @@ function watchFps(dt) {
   if (fpsWin.t < 4) return;
   const fps = fpsWin.n / fpsWin.t;
   fpsWin.t = fpsWin.n = 0;
-  if (fps < 40) {
+  // 27~33fps 는 저전력 모드 등으로 화면 갱신이 30Hz로 묶인 경우가 많아 품질을 낮춰도 나아지지 않는다
+  if (fps < 40 && !(fps > 27 && fps < 33)) {
     renderer.setQuality('low');
-    store.set('quality', 'low');
+    store.set('quality', { q: 'low', at: Date.now() });
     toast('부드러운 플레이를 위해 그래픽 품질을 낮췄어요');
   }
 }
@@ -572,10 +580,10 @@ requestAnimationFrame(frame);
 
 // 디버그·자동 검증용 훅: 로컬 개발 서버나 ?debug 에서만 노출
 if (DEBUG) window.__paperSkyline = {
-  get run() { return run; },
+  get run() { debugTouched = true; return run; },
   get mode() { return mode; },
   renderer,
-  input,
+  get input() { debugTouched = true; return input; },
   // 백그라운드 탭처럼 requestAnimationFrame이 멈춘 환경에서 수동으로 진행시키는 검증용 함수
   advance(seconds, ctrl = {}) {
     debugTouched = true;

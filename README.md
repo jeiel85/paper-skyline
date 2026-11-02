@@ -109,7 +109,7 @@ npm test
 
 ```
 index.html          화면(HUD·타이틀·결과·공유) + Three.js import map
-vendor/three/       Three.js r160 (자체 호스팅, MIT) — 외부 CDN 없이 동작
+vendor/three/       Three.js r160 (자체 호스팅, MIT) — 게임 코드는 외부 CDN 없이 동작 (웹폰트만 CDN, 실패 시 시스템 글꼴)
 css/style.css       UI 스타일 (모바일 대응)
 js/
   world.js          시드 기반 3D 도시 생성 · 팔레트 · 공간 조회

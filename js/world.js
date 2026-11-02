@@ -25,7 +25,7 @@ export const PALETTES = [
       ['#7a4a46', '#6b4a3a', '#86564a', '#5e4048'],
       ['#55506e', '#4a4660', '#5e5470', '#504a64'],
     ],
-    edge: '#ffb199', win: '#ffd27a', winOff: '#232241', glassSky: '#e8907e', litRate: 0.35, light: 0.75,
+    edge: '#ffb199', win: '#ffd27a', winOff: '#232241', glassSky: '#e8907e', litRate: 0.2, winGain: 0.55, light: 0.75,
     ground: '#2a2638', street: '#1b1a2a', line: '#e6b98a', cloud: '#ffc2b0', park: '#3f4a3a', plaza: '#4a4252', leaf: '#4f6b45',
     boards: ['#ff6b81', '#7bdff2', '#ffd166', '#b28dff', '#06d6a0'],
   },
@@ -42,7 +42,7 @@ export const PALETTES = [
       ['#3a2224', '#30241e', '#3d2a26', '#2c1f26'],
       ['#1d2036', '#191c30', '#22233a', '#1b1e34'],
     ],
-    edge: '#6f8cff', win: '#ffe6a0', winOff: '#0b1129', glassSky: '#2a4a8a', litRate: 0.5, light: 0.35,
+    edge: '#6f8cff', win: '#ffe6a0', winOff: '#0b1129', glassSky: '#2a4a8a', litRate: 0.3, winGain: 0.7, light: 0.35,
     ground: '#080b1c', street: '#05070f', line: '#5d6fb0', cloud: '#2a3a70', park: '#0c1a14', plaza: '#121428', leaf: '#163024',
     boards: ['#ff2e63', '#08d9d6', '#ffd23f', '#a259ff', '#00f5a0'],
   },
@@ -59,7 +59,7 @@ export const PALETTES = [
       ['#a0624f', '#8e5a4a', '#b07b5e', '#9b6b58'],
       ['#b9bec9', '#a9afbb', '#c7c2b8', '#b0b5bf'],
     ],
-    edge: '#ffffff', win: '#8fa6c0', winOff: '#34496b', glassSky: '#cfe8ff', litRate: 0.12, light: 1,
+    edge: '#ffffff', win: '#8fa6c0', winOff: '#34496b', glassSky: '#cfe8ff', litRate: 0.08, winGain: 0.35, light: 1,
     ground: '#7d8a76', street: '#5d6470', line: '#f2f2f2', cloud: '#ffffff', park: '#6f9a5a', plaza: '#b9b2a4', leaf: '#4f8a46',
     boards: ['#ff5d73', '#3fa7d6', '#fac05e', '#7c6ee6', '#2ec4b6'],
   },
@@ -232,17 +232,23 @@ export function createWorld(seed) {
     }
   }
 
-  // 나무 충돌용 격자: 공원 나무 + 옥상 정원 나무. 수관 반지름 0.75s, 높이 2.3s (렌더러 모양과 같음)
+  const roofTrees = [];
+  for (const b of buildings) for (const d of b.decor) if (d.type === 'tree') roofTrees.push(d);
+  const treeGrid = buildTreeGrid(trees.concat(roofTrees));
+
+  return { seed, palette, buildings, grid, vents, stars, start, parks, trees, treeGrid };
+}
+
+// 나무 충돌용 격자: 나무 {x, y(밑동 높이), z, s(크기)} 목록 → 블록별 원기둥 장애물.
+// 수관 반지름 0.75s, 높이 2.3s 로 렌더러의 나무 모양과 맞춘다.
+export function buildTreeGrid(trees) {
   const treeGrid = new Map();
-  const addTree = (t) => {
+  for (const t of trees) {
     const k = key(Math.round(t.x / CELL), Math.round(t.z / CELL));
     if (!treeGrid.has(k)) treeGrid.set(k, []);
     treeGrid.get(k).push({ x: t.x, z: t.z, base: t.y, top: t.y + t.s * 2.3, r: t.s * 0.75 });
-  };
-  trees.forEach(addTree);
-  for (const b of buildings) for (const d of b.decor) if (d.type === 'tree') addTree(d);
-
-  return { seed, palette, buildings, grid, vents, stars, start, parks, trees, treeGrid };
+  }
+  return treeGrid;
 }
 
 // (x,z) 주변 블록의 나무 장애물

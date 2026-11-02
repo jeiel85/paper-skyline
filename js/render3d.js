@@ -61,16 +61,16 @@ const FACADE_FRAG = `
     vec2 wid = floor(cell) + floor(vBase.xz * 0.37) + vSeed * 17.0;
     float hsh = fract(sin(dot(wid, vec2(12.9898, 78.233))) * 43758.5453);
     float isGlass = step(2.5, st) * step(st, 3.5);
-    float lit = step(hsh, uLit * (1.0 - isGlass * 0.55));
+    float lit = step(hsh, uLit * (0.35 + 1.3 * vSeed) * (1.0 - isGlass * 0.55));
     // 불 켜진 창은 따뜻한 색/차가운 색이 섞여 있다
     vec3 winCol = uWin * mix(vec3(1.0), vec3(0.78, 0.92, 1.25), step(0.72, fract(hsh * 7.0)));
     if (isGlass > 0.5) {
       float refl = 0.35 + 0.45 * smoothstep(0.0, 1.0, (fy - bot) / max(1.0, vRoof - bot));
       diffuseColor.rgb = mix(diffuseColor.rgb, uGlassSky, win * refl * 0.55);
-      totalEmissiveRadiance += winCol * win * lit * 0.55;
+      totalEmissiveRadiance += winCol * win * lit * 0.55 * uWinGain;
     } else {
       diffuseColor.rgb = mix(diffuseColor.rgb, uWinOff, win * (1.0 - lit) * 0.8);
-      totalEmissiveRadiance += winCol * win * lit * (0.65 + 0.35 * hsh);
+      totalEmissiveRadiance += winCol * win * lit * (0.65 + 0.35 * hsh) * uWinGain;
     }
     if (st > 3.5 && st < 4.5) {
       // 벽돌 건물: 옥상 코니스 + 층 띠
@@ -89,7 +89,7 @@ const FACADE_FRAG = `
     float roof = step(0.5, vWNrm.y);
     diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * 1.3 + 0.04, roof);
     float edge = side * smoothstep(vRoof - 0.7, vRoof - 0.15, fy) * step(st, 4.5);
-    totalEmissiveRadiance += uEdge * edge * 0.3;
+    totalEmissiveRadiance += uEdge * edge * 0.15;
   }
 `;
 
@@ -101,6 +101,7 @@ function buildingMaterial(pal) {
     uEdge: { value: col(pal.edge) },
     uGlassSky: { value: col(pal.glassSky) },
     uLit: { value: pal.litRate },
+    uWinGain: { value: pal.winGain },
   };
   mat.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms);
@@ -108,7 +109,7 @@ function buildingMaterial(pal) {
       .replace('#include <common>', '#include <common>\nattribute float aStyle;\nattribute float aSeed;\n' + WPOS_VERT_DECL)
       .replace('#include <worldpos_vertex>', '#include <worldpos_vertex>\n' + WPOS_VERT_BODY);
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\n' + WPOS_VERT_DECL + 'uniform vec3 uWin;\nuniform vec3 uWinOff;\nuniform vec3 uEdge;\nuniform vec3 uGlassSky;\nuniform float uLit;\n')
+      .replace('#include <common>', '#include <common>\n' + WPOS_VERT_DECL + 'uniform vec3 uWin;\nuniform vec3 uWinOff;\nuniform vec3 uEdge;\nuniform vec3 uGlassSky;\nuniform float uLit;\nuniform float uWinGain;\n')
       .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n' + FACADE_FRAG);
   };
   return mat;
