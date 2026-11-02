@@ -281,11 +281,19 @@ const _v = new THREE.Vector3();
 const _s = new THREE.Vector3();
 const _e = new THREE.Euler();
 
+// 품질 단계: 픽셀 비율 상한과 배경 장식 양
+const QUALITY = {
+  high: { dpr: 1.75, bg: 1400, back: 160, clouds: 70, decor: true },
+  low: { dpr: 1, bg: 600, back: 70, clouds: 28, decor: false },
+};
+
 export class Renderer3D {
-  constructor(canvas) {
+  constructor(canvas, quality = 'high') {
     this.canvas = canvas;
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
+    this.quality = QUALITY[quality] ? quality : 'high';
+    this.builtQuality = null;
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: this.quality === 'high', powerPreference: 'high-performance' });
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, QUALITY[this.quality].dpr));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(64, 1, 0.3, 6000);
@@ -338,6 +346,14 @@ export class Renderer3D {
     this.scene.add(this.aimDots);
   }
 
+  // 픽셀 비율은 즉시, 장식 양은 다음 setWorld 부터 적용
+  setQuality(q) {
+    if (!QUALITY[q] || q === this.quality) return;
+    this.quality = q;
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, QUALITY[q].dpr));
+    this.resize();
+  }
+
   resize() {
     const W = Math.max(1, window.innerWidth), H = Math.max(1, window.innerHeight);
     this.W = W;
@@ -361,6 +377,8 @@ export class Renderer3D {
       this.disposables = [];
     }
     const pal = PALETTES[world.palette];
+    const Q = QUALITY[this.quality];
+    this.builtQuality = this.quality;
     this.pal = pal;
     this.world = world;
     const group = new THREE.Group();
@@ -403,9 +421,9 @@ export class Renderer3D {
         blocks.push({ ...p, style, color, seed: b.seed });
       }
     }
-    for (let i = 0; i < 1560; i++) {
+    for (let i = 0; i < Q.bg + Q.back; i++) {
       let x, z, h;
-      if (i < 1400) {
+      if (i < Q.bg) {
         const side = rnd() < 0.5 ? -1 : 1;
         x = side * (330 + rnd() * 1300);
         z = -400 + rnd() * (CITY_END + 1200);
@@ -489,6 +507,7 @@ export class Renderer3D {
     // 옥상 장식: 실외기 · 헬리패드 · 옥상 정원 · 나무
     const decor = { ac: [], helipad: [], garden: [], tree: [] };
     for (const b of world.buildings) for (const d of b.decor) decor[d.type].push(d);
+    if (!Q.decor) decor.ac.length = 0; // 저사양: 작은 실외기는 생략
     const trees = decor.tree.concat(world.trees);
     stamp(box, this.track(new THREE.MeshLambertMaterial({ color: metal })), decor.ac, (d, v, sc) => {
       v.set(d.x, d.y, d.z);
@@ -549,7 +568,7 @@ export class Renderer3D {
 
     // 구름
     const cmat = this.track(new THREE.SpriteMaterial({ map: this.softTex, color: col(pal.cloud), transparent: true, opacity: pal.stars > 0.5 ? 0.35 : 0.75, depthWrite: false }));
-    for (let i = 0; i < 70; i++) {
+    for (let i = 0; i < Q.clouds; i++) {
       const sp = new THREE.Sprite(cmat);
       sp.position.set((rnd() - 0.5) * 3000, 380 + rnd() * 320, -500 + rnd() * (CITY_END + 1500));
       sp.scale.set(160 + rnd() * 220, 50 + rnd() * 50, 1);

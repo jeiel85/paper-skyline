@@ -232,7 +232,31 @@ export function createWorld(seed) {
     }
   }
 
-  return { seed, palette, buildings, grid, vents, stars, start, parks, trees };
+  // 나무 충돌용 격자: 공원 나무 + 옥상 정원 나무. 수관 반지름 0.75s, 높이 2.3s (렌더러 모양과 같음)
+  const treeGrid = new Map();
+  const addTree = (t) => {
+    const k = key(Math.round(t.x / CELL), Math.round(t.z / CELL));
+    if (!treeGrid.has(k)) treeGrid.set(k, []);
+    treeGrid.get(k).push({ x: t.x, z: t.z, base: t.y, top: t.y + t.s * 2.3, r: t.s * 0.75 });
+  };
+  trees.forEach(addTree);
+  for (const b of buildings) for (const d of b.decor) if (d.type === 'tree') addTree(d);
+
+  return { seed, palette, buildings, grid, vents, stars, start, parks, trees, treeGrid };
+}
+
+// (x,z) 주변 블록의 나무 장애물
+export function treesNear(world, x, z) {
+  const out = [];
+  if (!world.treeGrid) return out;
+  const i = Math.round(x / CELL), k = Math.round(z / CELL);
+  for (let di = -1; di <= 1; di++) {
+    for (let dk = -1; dk <= 1; dk++) {
+      const list = world.treeGrid.get(key(i + di, k + dk));
+      if (list) for (const t of list) out.push(t);
+    }
+  }
+  return out;
 }
 
 function inBox(b, x, z, pad = 0) {

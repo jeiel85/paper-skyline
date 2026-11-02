@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createWorld, START_H, CELL, surfaceAt } from '../js/world.js';
 import { createRun, step, launch, totalScore, distanceOf } from '../js/sim.js';
-import { seedToCode, codeToSeed } from '../js/rng.js';
+import { seedToCode, codeToSeed, challengeTag } from '../js/rng.js';
 
 const DT = 1 / 120;
 
@@ -132,4 +132,25 @@ test('생성된 도시의 옥상 구조물은 자기 빌딩의 옥상 위에 놓
       }
     }
   }
+});
+
+test('공원 나무에 부딪히면 밀려나고 종이가 구겨진다', () => {
+  const w = emptyWorld();
+  w.treeGrid = new Map([[1, [{ x: 0, z: 44, base: 0, top: 7, r: 2 }]]]); // 블록 (0, 1)
+  const run = createRun(w);
+  run.phase = 'fly';
+  run.p.x = 0; run.p.y = 4; run.p.z = 36; run.p.vz = 25;
+  const hits = [];
+  for (let i = 0; i < 120 && !hits.length; i++) step(run, {}, DT, (t, d) => { if (t === 'hit') hits.push(d); });
+  assert.equal(hits.length, 1);
+  assert.equal(hits[0].kind, 'tree');
+  assert.ok(Math.hypot(run.p.x, run.p.z - 44) >= 2 + 0.6 - 1e-6, '수관 밖으로 밀려난다');
+});
+
+test('챌린지 확인 태그는 점수·도시가 바뀌면 달라진다', () => {
+  const t = challengeTag('ABCDE', 1234);
+  assert.match(t, /^[2-9A-HJ-NP-Z]{4}$/);
+  assert.equal(challengeTag('ABCDE', 1234), t);
+  assert.notEqual(challengeTag('ABCDE', 1235), t);
+  assert.notEqual(challengeTag('ABCDF', 1234), t);
 });

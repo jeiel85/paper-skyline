@@ -40,6 +40,17 @@ export function codeToSeed(code) {
   return n;
 }
 
+// 챌린지 링크 확인 태그: 도시 코드 + 점수의 FNV-1a 해시를 4글자로.
+// 비밀키가 없는 클라이언트 계산이라 위조를 '막지'는 못하고, 주소창 숫자만 바꾸는 변조를 걸러 낸다.
+export function challengeTag(code, score) {
+  let h = 0x811c9dc5;
+  for (const ch of `${code}:${score}:paper-skyline`) {
+    h ^= ch.charCodeAt(0);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return seedToCode(h % 32 ** 5).slice(1);
+}
+
 export function randomSeed() {
   return Math.floor(Math.random() * 32 ** 5);
 }
