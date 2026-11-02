@@ -9,14 +9,14 @@
   <meta property="og:type" content="website" />
   <meta property="og:title" content="PAPER SKYLINE — 3D 종이비행기 빌딩 숲 활공" />
   <meta property="og:description" content="옥상에서 날린 종이비행기로 빌딩 숲을 가로질러라. 루프·옥상 스치기·골목 질주로 점수를 올리고 친구에게 도전장을!" />
-  <meta property="og:image" content="https://jeiel85.github.io/paper-skyline/docs/og.png" />
+  <meta property="og:image" content="https://jeiel85.github.io/paper-skyline/docs/og.jpg" />
   <meta property="og:url" content="https://jeiel85.github.io/paper-skyline/" />
   <meta name="twitter:card" content="summary_large_image" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2353407a'/%3E%3Cpath d='M56 14 8 30l18 6z' fill='%23fff'/%3E%3Cpath d='M56 14 26 36l4 14z' fill='%23d9dcef'/%3E%3C/svg%3E" />
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" media="print" onload="this.media='all'" />
   <link rel="stylesheet" href="css/style.css" />
   <script type="importmap">
-    { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
+    { "imports": { "three": "./vendor/three/three.module.min.js" } }
   </script>
 </head>
 <body>
@@ -53,7 +53,7 @@
       </div>
       <p class="tagline">최고층 옥상에서 날린 종이비행기 한 장.<br />3D 빌딩 숲을 누비며 지상까지 — 더 멀리, 더 멋지게.</p>
       <div class="challenge hidden" id="challenge"></div>
-      <button class="btn primary big" id="btnStart">비행 시작</button>
+      <button class="btn primary big" id="btnStart" disabled>불러오는 중…</button>
       <div class="row">
         <button class="btn ghost" id="btnHow">조작법</button>
         <button class="btn ghost" id="btnNewCity">새 도시</button>
@@ -137,6 +137,23 @@
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
+  <section id="loadfail" class="screen hidden">
+    <div class="card">
+      <h2>게임을 불러오지 못했어요</h2>
+      <p class="small">네트워크가 불안정하거나 일부 파일이 차단되었을 수 있어요. 연결을 확인한 뒤 다시 시도해 주세요.</p>
+      <p class="small mono" id="loadfailDetail"></p>
+      <button class="btn primary" id="btnReload">다시 시도</button>
+    </div>
+  </section>
+
+  <section id="glLost" class="screen hidden">
+    <div class="card">
+      <h2>그래픽을 다시 준비하는 중…</h2>
+      <p class="small">기기가 3D 그래픽을 잠시 해제했어요. 곧 자동으로 돌아옵니다. 오래 걸리면 새로고침해 주세요.</p>
+      <button class="btn ghost" id="btnGlReload">새로고침</button>
+    </div>
+  </section>
+
   <section id="nogl" class="screen hidden">
     <div class="card">
       <h2>3D를 표시할 수 없어요</h2>
@@ -144,6 +161,6 @@
     </div>
   </section>
 
-  <script type="module" src="js/main.js"></script>
+  <script type="module" src="js/boot.js"></script>
 </body>
 </html>

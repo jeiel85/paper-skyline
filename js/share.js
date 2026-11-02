@@ -1,6 +1,6 @@
 // 점수 카드 이미지 + 챌린지 링크 공유
 import { PALETTES } from './world.js';
-import { hash2 } from './rng.js';
+import { hash2, challengeTag } from './rng.js';
 
 const FONT = '"Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif';
 
@@ -10,6 +10,7 @@ export function challengeUrl(code, score) {
   u.hash = '';
   u.searchParams.set('city', code);
   u.searchParams.set('c', String(score));
+  u.searchParams.set('v', challengeTag(code, score));
   return u.toString();
 }
 

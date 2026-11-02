@@ -9,7 +9,7 @@ export class Sound {
   // 브라우저 자동재생 정책 때문에 첫 사용자 입력에서 호출한다
   unlock() {
     if (this.ctx) {
-      if (this.ctx.state === 'suspended') this.ctx.resume();
+      this.resume();
       return;
     }
     const AC = window.AudioContext || window.webkitAudioContext;
@@ -37,6 +37,13 @@ export class Sound {
     src.connect(bp).connect(wg).connect(this.master);
     src.start();
     this.wind = { bp, wg };
+  }
+
+  // 탭 전환·iOS 인터럽트 뒤 멈춘 컨텍스트를 다시 깨운다
+  resume() {
+    if (!this.ctx || this.ctx.state === 'running') return;
+    const p = this.ctx.resume(); // 구형 webkitAudioContext 는 Promise 를 돌려주지 않는다
+    if (p && p.catch) p.catch(() => { /* 사용자 입력 전이면 다음 탭에서 재시도 */ });
   }
 
   setMuted(m) {

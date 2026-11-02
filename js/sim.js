@@ -1,6 +1,6 @@
 // 3D 비행 시뮬레이션 + 점수 판정. DOM·Three.js에 의존하지 않아 Node 테스트에서 그대로 돌린다.
 // 점질량 글라이더: 양력은 속도에 수직, 뱅크각만큼 기울어져 선회를 만든다.
-import { START_H, CITY_END, buildingAt, buildingsNear, surfaceAt, roofAt } from './world.js';
+import { START_H, CITY_END, buildingAt, buildingsNear, surfaceAt, roofAt, treesNear } from './world.js';
 
 export const PHYS = {
   G: 9.8,
@@ -271,6 +271,33 @@ function collideWalls(run, prev, emit) {
   }
 }
 
+// 나무: 수직 원기둥으로 보고, 부딪히면 바깥으로 밀어내며 종이가 구겨진다
+function collideTrees(run, emit) {
+  const p = run.p;
+  for (const t of treesNear(run.world, p.x, p.z)) {
+    if (p.y < t.base || p.y > t.top) continue;
+    const dx = p.x - t.x, dz = p.z - t.z;
+    const d = Math.hypot(dx, dz);
+    const min = t.r + PHYS.R;
+    if (d >= min) continue;
+    const nx = d > 1e-6 ? dx / d : 0, nz = d > 1e-6 ? dz / d : -1;
+    p.x = t.x + nx * min;
+    p.z = t.z + nz * min;
+    if (run.phase === 'landed') {
+      p.vx = 0;
+      p.vz = 0;
+      continue;
+    }
+    const vn = p.vx * nx + p.vz * nz; // 바깥쪽 성분
+    const push = Math.max(4, -vn * 0.3);
+    p.vx += (push - vn) * nx;
+    p.vz += (push - vn) * nz;
+    p.vx *= 0.6;
+    p.vz *= 0.6;
+    hit(run, emit, 'tree');
+  }
+}
+
 function handleSurface(run, dt, emit) {
   const p = run.p;
   const b = buildingAt(run.world, p.x, p.z);
@@ -487,6 +514,7 @@ export function step(run, input, dt, emit = () => {}) {
   run.invuln = Math.max(0, run.invuln - dt);
   flyPhysics(run, input, dt, emit);
   collideWalls(run, prev, emit);
+  collideTrees(run, emit);
   handleSurface(run, dt, emit);
 
   const sp = speedOf(p);
